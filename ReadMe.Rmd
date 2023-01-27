@@ -7,4 +7,7 @@ date: '2023-01-20'
 
 ## For HSPH assignment only
 
-File path:
+*Data*: holds the data used in analysis, as well as model outputs.
+
+*Analysis*: Code and output (.html)
+
