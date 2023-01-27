@@ -1628,14 +1628,19 @@ world</h3>
 <p>Since the study data is an area-level time series, a typical approach
 would be a 2-staged meta-regression, where county-specific estimates are
 generated in stage 1 and pooled in stage 2. Effect modification can be
-examined in the 2nd stage.</p>
+examined in the 2nd stage. Another thought is to use controlled
+interrupted time series (CITS). We could use historical PM as a control
+group and run with time series against current PM (with wildfire days).
+However, after looking at figure 2, I do not think CITS is a group
+approach (no noticeable jump and very hard-to-define delayed
+effects).</p>
 <p>While examining the data, I found a substantial zero cases or deaths
 days. In addition, evidence of seasonality and nonlinear associations
 between covariates and the outcomes were founded. Based on this
 evidence, in an ideal world, a distributed lag zero-inflated Poisson
 penalized regression (with correction for overdispersion) can be
 employed in stage 1 and then meta-regress with random intercepts or
-slopes in stage 2. Very mucm like what the reading did.</p>
+slopes in stage 2. Very much like what the reading did.</p>
 </div>
 <div id="the-reality" class="section level3" number="3.1.2">
 <h3><span class="header-section-number">3.1.2</span> The reality</h3>
