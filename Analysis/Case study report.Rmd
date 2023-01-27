@@ -1,0 +1,394 @@
+---
+title: "Case Study Report"
+author: "Futu Chen"
+date: '2023-01-26'
+output: 
+  html_document:
+    toc_float: 
+      collapsed: false
+      smooth_scroll: false
+    toc: true
+    number_sections: true
+---
+
+```{r loadlib, echo=F, results='hide', message=F, warning=F}
+#Loading libraries and data, code hided from final report
+library(lubridate)
+library(mgcv)
+library(splines)
+library(dlnm)
+library(mixmeta)
+library(dplyr)
+library(kableExtra)
+library(ggpubr)
+library(gplots)
+library(ggplot2)
+
+setwd("/Users/madaopt/Desktop/APPLY FOR JOB/HSPH BST assignment/wildfire_covid19_casestudy/Analysis")
+dat <- read.csv("/Users/madaopt/Desktop/APPLY FOR JOB/HSPH BST assignment/wildfire_covid19_casestudy/Data/moddat_Feb2021.csv")
+dat$date_dt <- as.Date(dat$date, "%Y-%m-%d")
+dat$wildfire.f <- factor(dat$wildfire)
+dat$FIPS.f <- factor(dat$FIPS)
+fips.list <- unique(dat$FIPS.f)
+model_dir <- "/Users/madaopt/Desktop/APPLY FOR JOB/HSPH BST assignment/wildfire_covid19_casestudy/Data/"
+```
+
+```{r echo=FALSE, message=F, warning=F}
+#cross reference, ref: https://rstudio-pubs-static.s3.amazonaws.com/98310_b44bc54001af49d98a7b891d204652e2.html
+fig <- local({
+    i <- 0
+    list(
+        cap=function(refName, text, center=FALSE, col="black", inline=FALSE) {
+            i <<- i + 1
+            ref[[refName]] <<- i
+            css_ctr <- ""
+            if (center) css_ctr <- "text-align:center; display:inline-block; width:100%;"
+            cap_txt <- paste0("<span style=\"color:", col, "; ", css_ctr, "\">Figure ", i, ": ", text , "</span>")
+            anchor <- paste0("<a name=\"", refName, "\"></a>")
+            if (inline) {
+                paste0(anchor, cap_txt)    
+            } else {
+                list(anchor=anchor, cap_txt=cap_txt)
+            }
+        },
+        
+        ref=function(refName, link=FALSE, checkRef=TRUE) {
+            
+            ## This function puts in a cross reference to a caption. You refer to the
+            ## caption with the refName that was passed to fig$cap() (not the code chunk name).
+            ## The cross reference can be hyperlinked.
+            
+            if (checkRef && !refName %in% names(ref)) stop(paste0("fig$ref() error: ", refName, " not found"))
+            if (link) {
+                paste0("<A HREF=\"#", refName, "\">Figure ", ref[[refName]], "</A>")
+            } else {
+                paste0("Figure ", ref[[refName]])
+            }
+        },
+        
+        ref_all=function(){
+            ## For debugging
+            ref
+        })
+})
+```
+
+```{r echo=FALSE}
+## This chunk replaces the default hook for processing plots. It achieves the purposes,
+## of laying out auto-numbered captions, but other functionality may be gone.
+#ref: https://rstudio-pubs-static.s3.amazonaws.com/98310_b44bc54001af49d98a7b891d204652e2.html
+
+library(knitr)
+knit_hooks$set(plot = function(x, options) {
+    sty <- ""
+    if (options$fig.align == 'default') {
+        sty <- ""
+    } else {
+        sty <- paste0(" style=\"text-align:", options$fig.align, ";\"")
+    }
+    
+    if (is.list(options$fig.cap)) {
+        ## options$fig.cap is a list returned by the function fig$cap()
+        str_caption <- options$fig.cap$cap_txt
+        str_anchr <- options$fig.cap$anchor
+    } else {
+        ## options$fig.cap is a character object (hard coded, no anchor)
+        str_caption <- options$fig.cap
+        str_anchr <- ""
+    }
+    
+    paste('<figure', sty, '>', str_anchr, '<img src="',
+        opts_knit$get('base.url'), paste(x, collapse = '.'),
+        '"><figcaption>', str_caption, '</figcaption></figure>',
+        sep = '')
+    
+})
+
+
+```
+
+```{r echo=FALSE}
+## This chucnk will read through *this* Rmd file, and attempt to extract all of the 
+## labels (not caption text) used for Figure captions. These labels are used
+## as anchors, so scanning through the document now will allow us to create cross references
+## before the caption actually appears. 
+
+## Get the name of this Rmd file
+rmdFn <- knitr::current_input()  # filename of input document
+
+## Read lines and close connection
+rmdCon <- file(rmdFn, open = "r")
+rmdLines <- readLines(rmdCon)
+close(rmdCon)
+
+## Pull out all occurences of at least one back tick, followed 
+## by any number of characters, followed by fig$cap (all on one line)
+figscap_idx <- grep("`+(.*)fig\\$cap", rmdLines)
+rmdLines <- rmdLines[figscap_idx]
+
+## Get rid of everything up until the start of the caption label
+## This presumes the caption label is the first argument of fig$cap()
+## E.g., fig.cap = fig$cap("my_label", ...)
+rmdLinesSansPre <- sub("(.*)fig\\$cap(.*?)[\"']", "", rmdLines)
+
+## Identify everything up until the first quote
+match_data <- regexpr("(.*?)[\"']", rmdLinesSansPre)
+
+## Reduce the length by one, because we're not interested in the final quote
+attr(match_data, "match.length") <- attr(match_data, "match.length") - 1
+
+## Extract
+fig_labels <- regmatches(rmdLinesSansPre, match_data, invert=FALSE)
+
+if (length(fig_labels) > 0) {
+
+    ## Test for duplicates
+    if (anyDuplicated(fig_labels) > 0) stop("Duplicate caption labels detected")
+    
+    ## Create a named list of Figure numbers
+    ref <- as.list(1:length(fig_labels))
+    names(ref) <- fig_labels
+}    
+```
+
+# Overview
+
+In this report, I first presented strength and limitations of the paper, then move on to a case-study with preliminary results. 
+
+<style>
+div.blue { background-color:#e6f0ff; border-radius: 5px; padding: 20px;}
+</style>
+<div class = "blue">
+<h3>Report highlights</h3>
+- Strengths and limitations were addressed. 
+- Potential additional statistical methods were proposed. 
+- In a simple model, no distributed lags were considered. I examined the association between 0-1 moving average PM exposure, and COVID-19 cases with generalized additive mixed effect models with a zero-inflated Poisson link function. This set of analyses was used to pick smooth functions for weather covariates. 
+- I then used a two-stage statistical approach. County-specific COVID-19 risks were estimated in stage 1 using a distributed lag model with a quasi-Poisson link function to account for overdispersion. Although different exposure and lag functions were explored, the exposure function was assumed to be linear, the same as lag functions, to keep things simple. 
+- In the second stage, I used the mixed-effects model to pool the association. 
+- Significant heterogeneity between counties was confirmed with Univariate Cochran Q-test for heterogeneity.
+- Pooled results were not consistent with the reading, and even showed a protective effect.  However, results were subjected to the model misspecification and potential errors in the code (my first time applying `dlnm` with `mixmeta`).
+</div>
+
+# Article review
+
+## Strength
+
+The strength of this paper lies in its methods that accommodate the complex environmental and outcome data. Specifically, it considered the delayed effect on the COVID-19 cases and temporal correlations between time series. Although the dose-response function is linear at each lag by a-priori, time-varying confounding was treated using spline to ensure minimal residual confounding. Since seasonal and temporal trends were controlled using time, weather, and mobility (in sensitivity analysis) variables, residual confounding by policy change, healthcare abilities, and other factors that fluctuate with time mentioned in the limitation should be limited. In addition, extended sensitivity analysis showed the robustness of the study under additional restrictions and different lags. Lastly, this study is highly reproducible and thus informative for future studies that investigate larger population-level effects or ask questions about effect modification, such as by age, education, and racial composition of the counties.
+
+## Limitations 
+
+This is a well-written and reviewed paper, and the limitation session has addressed most of my concerns while reading the context, such as confounding and additional model assumptions. I will discuss three limitations that are not extensively discussed in the paper. First, although distributed lag models partially handled temporal autocorrelation, this study did not consider spatial autocorrelation between counties, especially when COVID-19 is an infectious disease. Neighboring counties would likely share some correlation, and counties far apart geographically were more independent. In the 2-stage design, county-specific estimates might help to address this autocorrelation, but not enough. Future studies can ask questions such as on what spatial scale the associations matter (local or global) with geographically weighted regression to inform policy practices. Second, for COVID-19 deaths, the study did not adjust for the depletion of the pool, which would reduce the potential cases for long-term lags, especially in less populated counties. If a high PM day accelerated the death, then the association at a longer lag would seem protective compared to the days immediately following the high PM day. Third, under wildfire analysis, the assumption was that historical PM would be exchangeable with PM in 2020 had there been no wildfires. This might not be true if the concentration-response function was different comparing historical PM and 2020 PM under wildfire events. 
+
+# Case Study
+
+## Opening: Background and confession 
+<style>
+div.red { background-color:#F3E6FC; border-radius: 5px; padding: 20px; background-position: center center;  margin: 8ex;}
+</style>
+<div class = "red">
+<center> "*Free access to data doesn’t turn into knowledge without effort*" </center>
+ <center>              --*Hans Rosling* </center>
+ </div>
+### In an ideal world
+
+Since the study data is an area-level time series, a typical approach would be a 2-staged meta-regression, where county-specific estimates are generated in stage 1 and pooled in stage 2. Effect modification can be examined in the 2nd stage. 
+
+While examining the data, I found a substantial zero cases or deaths days. In addition, evidence of seasonality and nonlinear associations between covariates and the outcomes were founded. Based on this evidence, in an ideal world, a distributed lag zero-inflated Poisson penalized regression (with correction for overdispersion) can be employed in stage 1 and then meta-regress with random intercepts or slopes in stage 2. Very mucm like what the reading did. 
+
+### The reality
+
+The reality is far away from ideal. 
+
+My workflow got stuck at stage 1 due to my limited experience working with similar projects. Suppose I use package `dlnm` (distributed lag models) and `gam()` (taking advantage of its penalized splines and zero-inflated Poisson family). In that case, I have no idea how to incorporate the results into stage 2 (with package `mixmeta`).
+
+On the other hand, if I use distributed lag model with glm (with nature splines), I can only employ quasi-Poisson and give up zero-inflated. Additionally, penalized models are not possible. 
+
+Alternatively, another approach to the “ideal world analysis” is to use a `glmm` with random county intercept/slopes (at the end of the day, I used `bam()` function due to a family choice issue). This way, I can incorporate `dlnm` objects, specify zero-inflated family, use penalized regression, and account for county heterogeneity. However, can I incorporate effect modification into `glmm`? Maybe, since wildfire isn’t county-constant. But I feel this approach is not correct. So I kept it as a cross-check.
+
+After getting stuck on these three options, I reached out for help. I asked if people have successfully used `dlnm` with `mgcv` and `mixmeta`. Unfortunately, I didn’t get any surprises. 
+
+When I decided to submit my work with `bam()`, my hero **Barrak Alahmad** replied. He used `dlnm` with `mixmeta`, but without `mgcv`. I received a sample code from Barrak. I did not disclose the context of my project or discuss additional analytic plans with Barrak (except complaining about my above-mentioned coding drama). 
+
+Thus, I confirmed that the 2-stage approach is doable if I quit the zero-inflated model and stick to nature splines. **With special thanks to Barrak**, I will present you the following analysis and results. 
+
+Additional reference: 
+
+- chrome-extension://efaidnbmnnnibpcajpcglclefindmkaj/https://cran.r-project.org/web/packages/dlnm/vignettes/dlnmTS.pdf
+
+- https://github.com/gasparrini
+
+
+## Methods
+
+## Exposure Assessment 
+
+$PM_{2.5}$ was modeled as a moving average between the present and previous day (0-1) in the first set of (initial) analyses. A distributed lag model with 28 days of lag was fitted later on using quasi Poisson generaliazed linear models. 
+
+
+```{r  message=F, warning=F}
+lag <-function(x,n) {
+  nn<-length(x)
+  xn<-c(rep(NA,n),x[1:(nn-n)])
+  return(xn)
+}
+dat$pm25_lag1 <- lag(dat$pm25,1)
+dat$pm25_01avg <- (dat$pm25+dat$pm25_lag1)/2
+```
+
+### Outcome Assessment 
+
+Only COVID-19 cases were used for the purpose of the case study. Log population size was used as an offset. 
+
+### Covariates 
+
+Covariates included relative humidity (natural cubic spline with df=3), temperature (natural cubic spline df=2), day of the week, and time trend (natural cubic spline df=5). Due to high missingness, mobility was not included.
+Smooth functions were determined using aggregated data.
+
+Selection was based on eyeball test...
+
+```{r covriates, essage=F, warning=F}
+mdlist <- readRDS(paste0(model_dir,"cov_explore.rds")) # stored model to reduce knitting time
+
+# smd2 <- gam(cases ~ pm25_01avg + s(date_num,bs = "cr",fx=TRUE,k=5) + s(tmmx, bs="cr",fx=FALSE) + s(rmax, bs="cr",fx=FALSE) + as.factor(dayofweek) , family=ziP(), offset=log(population), data = dat, na.action=na.omit)#zero-inflated 
+ smd2 <- mdlist[[2]]
+summary(smd2) 
+plot(smd2,scale=0,pages=1) #looks like 2-3 df for temp(df=2)  and rh (df=3) is fine
+# smd3 <- gam(cases ~ pm25_01avg + s(date_num,bs = "cr",fx=TRUE,k=5) + s(tmmx, bs="cr",fx=FALSE, k=2) + s(rmax, bs="cr",fx=FALSE, k=3) + as.factor(dayofweek) , family=ziP(), offset=log(population), data = dat, na.action=na.omit)#zero-inflated 
+smd3 <- mdlist[[3]]
+summary(smd3)
+plot(smd3,scale=0,pages=1) 
+
+```
+
+
+### Effect modification (ignored)
+
+Initially, I thought about adding the wildfire*PM interaction term. However, questions came up about: how do I define interaction. Linear? Non-linear? What's the relationship with distributed lags? Specific lags? 
+
+I think including wildfire complicates this preliminary study, so I did not include wildfire in the analysis.
+
+## Results
+
+### Optimal exposure and lag functions
+
+A set of exposure functions ($f(x)$) and lag functions $w(l)$ were explored to pick the optimal combination. Selection was based on residual plots. 
+
+Lag days were set as 28 days (2 weeks) by biological subject-matter knowledges.  
+
+As an exploratory analyis, I choose linear exposure-response functions and lag functions due to the parsimonious
+
+```{r opt,  fig.align="center", fig.cap = fig$cap("f1"), fig.cap="Residual plots from a set of exposure/lag functions", message=F, warning=F}
+mdlist <- readRDS(paste0(model_dir,"cb_explore.rds"))
+# cb1 <- crossbasis(dat$pm25, lag=28, argvar=list("lin"), arglag=list("lin")) 
+# cb2 <- crossbasis(dat$pm25, lag=28, argvar=list("poly",degree=2), arglag=list("lin")) # exposure function a poly of degree 2
+# cb3 <- crossbasis(dat$pm25, lag=28, argvar=list("poly",degree=4), arglag=list("lin")) # exposure function a poly of degree 4
+# cb4 <- crossbasis(dat$pm25, lag=28, argvar=list("lin"), arglag=list(fun="strata"))  #lag function 
+# cb5 <- crossbasis(dat$pm25, lag=28, argvar=list("lin"), arglag=list(fun="ns",knots=logknots(28,4))) #change knots
+# cb5 <- crossbasis(dat$pm25, lag=28, argvar=list("lin"), arglag=list(fun="ns",knots=logknots(28,8)))
+# cb6 <- crossbasis(dat$pm25, lag=28, argvar=list("poly",degree=2), arglag=list(fun="ns",knots=logknots(28,4)))
+
+for (i in 1:6) {
+  plot(mdlist[[i]], which=1)
+}
+
+```
+
+### First Stage
+
+Here I used selected functions to estimate county-specific $\hat\beta_{PM}$.
+
+```{r stage1, message=F, warning=F}
+
+fips <- split(dat, dat$FIPS.f)
+
+coefall <- matrix(NA,length(fips),2,dimnames=list(names(fips)))
+vcovall <- vector("list",length(fips))
+names(vcovall) <- names(fips)
+mdall <- vector("list",length(fips))
+
+for (i in 1:length(fips.list)) {
+  data <- filter(dat, FIPS.f %in% fips.list[i])
+  # cb for pm
+  cb <-  crossbasis(data$pm25, lag=28, argvar=list("lin"), arglag=list(fun="lin")) 
+  md <- glm(cases ~ cb + ns(date_num, df=5) + ns(tmmx, df=2) + ns(rmax, df=3) + as.factor(dayofweek), data , family=quasipoisson, offset=log(population), na.action="na.exclude") 
+  predmean <- crosspred(cb,md,cen=mean(data$pm25,na.rm=T))
+  mdall[[i]] <- predmean
+   coefall[i,] <- coef(mdall[[i]])
+   vcovall[[i]] <- vcov(mdall[[i]])
+  # #reduce to one dim
+  # md.reduce <- crossreduce(cb, md,cen=mean(data$pm25,na.rm=T))
+  # mmt <- md.reduce$predvar[which.min(md.reduce$fit)[[1]]]
+  # mdall[[i]] <- crossreduce(cb, md,cen=mmt)
+  # coefall[i,] <- coef(mdall[[i]])
+  # vcovall[[i]] <- vcov(mdall[[i]])
+ }#FIPS
+
+# one-dim
+coefall.1dim <- matrix(NA,length(fips),1,dimnames=list(names(fips)))
+vcovall.1dim <- vector("list",length(fips))
+names(vcovall.1dim) <- names(fips)
+mdall.1dim <- vector("list",length(fips))
+
+for (i in 1:length(fips.list)) {
+  data <- filter(dat, FIPS.f %in% fips.list[i])
+  # cb for pm
+  cb <-  crossbasis(data$pm25, lag=28, argvar=list("lin"), arglag=list(fun="lin")) 
+  md <- glm(cases ~ cb + ns(date_num, df=5) + ns(tmmx, df=2) + ns(rmax, df=3) + as.factor(dayofweek), data , family=quasipoisson, offset=log(population), na.action="na.exclude") 
+  #reduce to one dim
+  md.reduce <- crossreduce(cb, md,cen=mean(data$pm25,na.rm=T))
+  mmt <- md.reduce$predvar[which.min(md.reduce$fit)[[1]]]
+  mdall.1dim[[i]] <- crossreduce(cb, md,cen=mmt)
+  coefall.1dim[i,] <- coef(mdall.1dim[[i]])
+  vcovall.1dim[[i]] <- vcov(mdall.1dim[[i]])
+ }#FIPS
+
+```
+
+### Second Stage
+
+Let's pool the estimates with vcov structures. 
+
+```{r pool, message=F, warning=F }
+# create dataset with 1 dim
+dat.pool <- as.data.frame( as.character(as.factor(fips.list)))
+dat.pool$coeff <- unlist(coefall.1dim)
+dat.pool$vcov <- unlist(vcovall.1dim)
+colnames(dat.pool) <-c("FIPS","coeff","vcov")
+dat.pool$FIPS_num <- as.numeric(as.character(dat.pool$FIPS))
+#    6    41    53 
+dat.pool$state <- ifelse(dat.pool$FIPS_num <10000, "CA", ifelse(dat.pool$FIPS_num <50000, "OR", "WA"))
+
+# meta null
+md.null <- mixmeta(coefall ~ 1, vcovall,control=list(showiter=T, igls.inititer=10),method="reml")
+summary(md.null)
+
+# add fixed effects 
+md1 <- mixmeta(coeff~0+FIPS, vcov, data=dat.pool)
+summary(md1)
+
+# county nested in state 
+md2 <- mixmeta(coeff, vcov, data=dat.pool, random=~1|state/FIPS)
+summary(md2)
+
+# heterogeneity 
+qtest(md.null)
+qtest(md1)
+qtest(md2)
+
+
+# test btw state
+drop1(update(md1, .~state, method="ml"), test="Chisq")
+drop1(update(md2, .~state, method="ml"), test="Chisq")
+
+
+# est effects: RR
+# pool from null model 
+
+library(Epi)
+ci.exp(md.null) # protective! WHUT
+# results for each county 
+ci.exp(md1) 
+range(exp(predict(md1))) #range of effects 
+ 
+```
+
